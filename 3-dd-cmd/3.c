@@ -5,50 +5,66 @@
 #include <dirent.h>
 #include <sys/wait.h>
 #include <errno.h>
+#include <fcntl.h>
 
 #define BUFFSIZE 64
 
 void readFile(char f_in[], char content[], int size);
-void dd(char content[], int fd[2]);
+void dd(int fd_child_to_father[2], int fd_father_to_child[2], char s[]);
 void writeFile(char f_out[], char content[]);
 
 
 int main(int argc, char **argv){
 
+    if (argc != 4){
+        fprintf(stderr, "Usage: %s file_in file_out dd_args\n", argv[0]);
+        exit(10);
+    }
+
     char f_in[32];
     char f_out[32];
+    char s[32];
 
     strcpy(f_in,  argv[1]);
     strcpy(f_out, argv[2]);
-    
-    //char s[32]     = argv[3];
+    strcpy(s, argv[3]);
 
     char content[BUFFSIZE];
     readFile(f_in, content, BUFFSIZE);
 
-	int fd[2];
-	int res = pipe(fd);
-	if (res<0){
+	int fd_father_to_child[2];  // the two file descriptors needed for the pipe
+	int fd_child_to_father[2];  // the two file descriptors needed for the pipe
+    
+	int res1 = pipe(fd_father_to_child); // creating pipe
+	int res2 = pipe(fd_child_to_father); // creating pipe
+
+    fcntl(fd_father_to_child[0], F_SETFL, O_NONBLOCK);  // VERY IMPORTANT (sets fd non-blocking)
+
+	if (res1<0 || res2<0){
 		printf("Pipe not created.\n");
 		exit(100);
 	}
 
 	__pid_t pid = fork();
 	if (pid < 0){
-        exit(100);
 		printf("Fork failed.\n");
+        exit(100);
 	}else if (pid == 0){
 		//printf("I am a child process\n");
-    	dd(content, fd);
+    	dd(fd_child_to_father, fd_father_to_child, s);
 	}
 
+    close(fd_father_to_child[0]);
+    close(fd_child_to_father[1]);
+    
 
-	close(fd[1]);
+    write(fd_father_to_child[1], content, BUFFSIZE-1);
 	char result[BUFFSIZE];
-	read(fd[0], result, BUFFSIZE-1);
-	//printf("I got the result from child process: %s\n", result);
-	wait(NULL);
-	close(fd[0]);
+    read(fd_child_to_father[0], result, BUFFSIZE-1); // father is blocked until pipe is not empty 
+	wait(NULL);  // get the exit status of the child process
+    
+    close(fd_father_to_child[1]);
+	close(fd_child_to_father[0]);
 
     
     writeFile(f_out, result);
@@ -73,7 +89,8 @@ void readFile(char f_in[], char content[], int size){
         for (int i=0; i<4; i++){
             read_char = fgetc(f_read);
             if (read_char==EOF || read_char=='\0'){
-                content[index] = '\0';
+                content[index] = '\n';
+                content[index+1] = '\0';
                 return;
             }
             if (i==1 || i==2){
@@ -87,24 +104,30 @@ void readFile(char f_in[], char content[], int size){
             }
         }
     }
-
-
 }
 
 
-void dd(char content[], int fd[2]){
-    
-    close(fd[0]);
-    dup2(fd[1], STDOUT_FILENO);
+void dd(int fd_child_to_father[2], int fd_father_to_child[2], char s[]){
 
-    char command[64];
-    sprintf(command, "echo %s | dd status=none", content);
-    execl("/bin/sh", "sh", "-c", command, (char *)NULL);
+    char result[BUFFSIZE];
+
+    close(fd_father_to_child[1]);
+    close(fd_child_to_father[0]);
+
+    dup2(fd_child_to_father[1], STDOUT_FILENO);
+    dup2(fd_father_to_child[0], STDIN_FILENO);
+
+    int null_fd = open("/dev/null", O_WRONLY);
+    dup2(null_fd, STDERR_FILENO);
+
+    close(fd_father_to_child[0]);
+    close(fd_child_to_father[1]);
     
-    close(fd[1]);	
+    char *args[] = {"/bin/dd", s, "status=none", NULL};
+    execvp(args[0], args);
+
     exit(0);
-    
-    return;
+
 }
 
 
