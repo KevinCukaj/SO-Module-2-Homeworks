@@ -1,5 +1,5 @@
 /*
-A program implementing a simplified `tree` (`LC_ALL=C tree -n --charset=ascii`).  
+A program implementing a simplified `tree` (`LC_ALL=C tree -n --charset=ascii`).
 */
 
 
@@ -11,6 +11,7 @@ A program implementing a simplified `tree` (`LC_ALL=C tree -n --charset=ascii`).
 #include <dirent.h>
 #include <fnmatch.h>
 #include <regex.h>
+#include <getopt.h>
 
 
 // color value constants 
@@ -18,57 +19,61 @@ A program implementing a simplified `tree` (`LC_ALL=C tree -n --charset=ascii`).
 #define GREEN  "\x1B[32m"
 #define BLUE  "\x1B[34m"
 
+#define PATTERNLEN 256
+
 
 void tree(char current_dir[], int depth, bool print_dash[], char pattern[]);
 void printLine(int depth, bool last_element, bool print_dash[], int i);
 
 
 int main(int argc, char **argv){
-    
-    /*
-    for (int i=0; i<argc; i++){
-        printf("Argument %d: %s\n", i, argv[i]);
-    }
-    */
 
-    bool P_opt = 0;     // -P option
-    char pattern[10];   // pattern
+    char opts[] = "apP:";       // options string to be used by getopt()
     
-    bool p_opt = 0;     // -p option
-    bool a_opt = 0;     // -a option
-    
-    int dir_index = 0;  // argv[dir_index] continene la prima directory
+    bool a_opt = 0;             // -a option
+    bool p_opt = 0;             // -p option
+    bool P_opt = 0;             // -P option
+    char pattern[PATTERNLEN];   // pattern
 
-    int index = 1;
-    while (argc>1){
-        if (argv[index][0] == '-'){
-            if (strcmp(argv[index],"-P")==0){
-                P_opt = 1;
-                sprintf(pattern, "%s", argv[index+1]);
-            }else if (strcmp(argv[index],"-a")==0){
+    int dir_index = 0;
+
+    int x;
+    while ((x = getopt(argc, argv, opts)) != -1) {
+        switch (x) {
+            case 'a':
                 a_opt = 1;
-            }else if (strcmp(argv[index],"-p")==0){
+                dir_index = optind;
+                break;
+            case 'p':
                 p_opt = 1;
-            }else{
-                exit(20); // a not allowed option was given 
-            }
-        }else if (strcmp(argv[index-1],"-P")!=0) {
-            if (dir_index==0){
-                dir_index = index;
-            }
-        }
-        index++;
-        if (index==argc){
-            break;
+                dir_index = optind;
+                break;
+            case 'P':
+                P_opt = 1;
+                strcpy(pattern, optarg);
+                dir_index = optind;
+                break;
+            default:
+                fprintf(stderr, "Usage: %s [-a] [-p] [-P pattern] [directories]\n", argv[0]);
+                return 1;
         }
     }
 
-    bool print_dash[100];
-    for (int i=0; i<100; i++){
+    bool print_dash[256];
+    for (int i=0; i<256; i++){
         print_dash[i] = 0;
     }
 
     if (dir_index == 0){  // no arguments were given
+        if (argc == 1){
+            printf(".\n");
+            tree(".", 1, print_dash, pattern);
+            printf("\n\n");
+        } else{
+            dir_index = 1;
+        }
+    }else if (dir_index >= argc){
+        printf(".\n");
         tree(".", 1, print_dash, pattern);
         printf("\n\n");
     }else{
